@@ -145,6 +145,51 @@
 
   // ---------- Webex JS SDK ----------
 
+  function waitForSdkReady(sdk, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      // If already authorizable, resolve immediately.
+      if (sdk.canAuthorize) {
+        log("SDK ready", "canAuthorize=true (immediate)");
+        resolve();
+        return;
+      }
+
+      let settled = false;
+      const finish = (ok, reason) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(poll);
+        clearTimeout(timer);
+        if (ok) resolve();
+        else reject(new Error(reason || "SDK cannot authorize"));
+      };
+
+      // Preferred: wait for the 'ready' event.
+      if (typeof sdk.once === "function") {
+        sdk.once("ready", () => {
+          log("SDK event", "ready");
+          if (sdk.canAuthorize) finish(true);
+          else finish(false, "SDK ready but cannot authorize (check token/org)");
+        });
+      }
+
+      // Fallback: poll canAuthorize in case the event already fired.
+      const poll = setInterval(() => {
+        if (sdk.canAuthorize) {
+          log("SDK ready", "canAuthorize=true (poll)");
+          finish(true);
+        }
+      }, 250);
+
+      const timer = setTimeout(() => {
+        finish(
+          sdk.canAuthorize,
+          "Timed out waiting for SDK to authorize (token may be invalid for Meetings)"
+        );
+      }, timeoutMs);
+    });
+  }
+
   async function registerSdk() {
     const token = normalizeToken(els.accessToken.value);
     if (!token) {
@@ -168,6 +213,12 @@
           credentials: { access_token: token },
         },
       });
+
+      // The SDK initializes asynchronously. Calling meetings.register() before
+      // credentials are ready throws "SDK cannot authorize". Wait until the
+      // instance is ready and can authorize before proceeding.
+      log("Register step", "waiting for SDK ready");
+      await waitForSdkReady(webexSdk);
 
       try {
         log("Register step", "meetings.register");
