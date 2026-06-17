@@ -1,116 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Webex Live Transcript Forwarder</title>
-    <link rel="stylesheet" href="./css/style.css" />
 
-    <!-- Webex Embedded App Framework SDK (required for embedded apps) -->
-    <script src="https://binaries.webex.com/static-content-pipeline/webex-embedded-app/v1/webex-embedded-app-sdk.js"></script>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webex Meeting Transcription</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.min.css">
+  <link rel="stylesheet" href="./style.css" />
+</head>
 
-    <!-- Webex JavaScript SDK (used to subscribe to real-time transcription) -->
-    <script src="https://unpkg.com/webex@3.12.0/umd/webex.min.js"></script>
-  </head>
-  <body>
-    <main class="container">
-      <header>
-        <h1>Live Transcript Viewer</h1>
-        <p class="subtitle">
-          Displays Webex Assistant's real-time transcription inside the app.
-        </p>
-      </header>
+<body>
+  <main style="max-width: 720px; margin: 0 auto;">
+    <h2>Meeting Transcription</h2>
 
-      <section class="card">
-        <h2>1. Sign in to Webex</h2>
+    <button id="login-btn" disabled>Login with Webex</button>
+    <p id="status">Loading…</p>
 
-        <label for="clientId">Webex Integration Client ID</label>
-        <input
-          id="clientId"
-          type="text"
-          placeholder="C... (from your OAuth Integration at developer.webex.com)"
-          autocomplete="off"
-        />
-        <small>
-          Create an <strong>Integration</strong> (not a personal token) at
-          developer.webex.com → My Webex Apps → Create an Integration. The
-          meetings SDK needs a downscopable OAuth token, which only an
-          Integration can issue.
-        </small>
+    <h3>Transcript</h3>
+    <div id="transcript"
+      style="border: 1px solid #ccc; border-radius: 6px; padding: 12px; height: 50vh; overflow-y: auto; white-space: pre-wrap;">
+    </div>
+  </main>
 
-        <label for="redirectUri">Redirect URI (copy this into your Integration)</label>
-        <input id="redirectUri" type="text" readonly />
-        <small>
-          Paste this exact value into your Integration's
-          <em>Redirect URI(s)</em> field, and add the scopes
-          <code>spark:all</code> and <code>spark:kms</code>.
-        </small>
+  <script src="./webex.min.js"></script>
+  <script src="./app.js"></script>
+</body>
 
-        <div class="actions">
-          <button id="btnLogin" type="button">Login with Webex</button>
-          <button id="btnLogout" type="button" disabled>Logout</button>
-        </div>
-        <p>
-          Sign-in: <span id="authStatus" class="status status-idle">Not signed in</span>
-        </p>
-
-        <details>
-          <summary>Advanced: use a personal access token instead</summary>
-          <label for="accessToken">Webex personal access token (testing only)</label>
-          <input
-            id="accessToken"
-            type="password"
-            placeholder="Paste token from developer.webex.com"
-            autocomplete="off"
-          />
-          <small>
-            Personal tokens work for the REST check but usually fail the
-            meetings auth (they cannot be downscoped). Prefer the Integration
-            login above.
-          </small>
-        </details>
-
-        <label for="meetingDestination">Meeting destination (optional)</label>
-        <input
-          id="meetingDestination"
-          type="text"
-          placeholder="Auto-detected when running in a meeting; paste SIP/number/link if manual override needed"
-        />
-        <small id="meetingDestinationHint">
-          If this app is running inside a Webex meeting, the meeting is auto-detected.
-          Otherwise, paste the meeting destination (SIP URI, meeting number, or link).
-        </small>
-      </section>
-
-      <section class="card">
-        <h2>2. Controls</h2>
-        <div class="actions">
-          <button id="btnRegister" type="button">Register Webex SDK</button>
-          <button id="btnJoin" type="button" disabled>Join &amp; Start Transcription</button>
-          <button id="btnLeave" type="button" disabled>Leave Meeting</button>
-        </div>
-        <p>
-          Status: <span id="status" class="status status-idle">Idle</span>
-        </p>
-      </section>
-
-      <section class="card">
-        <h2>3. Embedded App Context</h2>
-        <pre id="embeddedCtx">Not running inside Webex.</pre>
-      </section>
-
-      <section class="card">
-        <h2>4. Live Transcript</h2>
-        <div id="transcriptBox" class="transcript" aria-live="polite"></div>
-      </section>
-
-      <section class="card">
-        <h2>5. Log</h2>
-        <pre id="log"></pre>
-      </section>
-    </main>
-
-    <!-- Bump the ?v= query whenever app.js changes to bypass Webex's aggressive cache. -->
-    <script src="./js/app.js?v=17"></script>
-  </body>
 </html>
