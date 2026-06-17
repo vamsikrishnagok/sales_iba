@@ -145,11 +145,54 @@
 
   // ---------- Webex JS SDK ----------
 
-  function waitForSdkReady(sdk, timeoutMs = 15000) {
+  function describeCredentials(sdk) {
+    try {
+      const creds = sdk && sdk.credentials;
+      const st = creds && creds.supertoken;
+      return {
+        hasCredentials: Boolean(creds),
+        canAuthorize: Boolean(sdk && sdk.canAuthorize),
+        credentialsCanAuthorize: Boolean(creds && creds.canAuthorize),
+        hasSupertoken: Boolean(st),
+        supertokenHasAccessToken: Boolean(st && st.access_token),
+        supertokenCanAuthorize: Boolean(st && st.canAuthorize),
+        supertokenIsExpired: Boolean(st && st.isExpired),
+      };
+    } catch (e) {
+      return { error: e && e.message };
+    }
+  }
+
+  // Forces the supertoken onto the credentials plugin. The constructor normally
+  // does this from `credentials.access_token`, but if storage rehydration or a
+  // prior failed init leaves canAuthorize false, set it explicitly.
+  function forceSupertoken(sdk, token) {
+    try {
+      if (sdk && sdk.credentials && typeof sdk.credentials.set === "function") {
+        log("Forcing supertoken onto credentials plugin");
+        sdk.credentials.set({
+          supertoken: { access_token: token, token_type: "Bearer" },
+        });
+        return true;
+      }
+    } catch (e) {
+      log("forceSupertoken failed", e && e.message);
+    }
+    return false;
+  }
+
+  function waitForSdkReady(sdk, token, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
+      const tryAuthorize = (source) => {
+        if (sdk.canAuthorize) {
+          log("SDK ready", `canAuthorize=true (${source})`);
+          return true;
+        }
+        return false;
+      };
+
       // If already authorizable, resolve immediately.
-      if (sdk.canAuthorize) {
-        log("SDK ready", "canAuthorize=true (immediate)");
+      if (tryAuthorize("immediate")) {
         resolve();
         return;
       }
@@ -164,24 +207,34 @@
         else reject(new Error(reason || "SDK cannot authorize"));
       };
 
+      const resolveOrForce = (source) => {
+        if (tryAuthorize(source)) {
+          finish(true);
+          return;
+        }
+        // Not authorizable yet: log state and try forcing the supertoken.
+        log("Credentials state", describeCredentials(sdk));
+        if (forceSupertoken(sdk, token) && tryAuthorize("forced")) {
+          finish(true);
+        }
+      };
+
       // Preferred: wait for the 'ready' event.
       if (typeof sdk.once === "function") {
         sdk.once("ready", () => {
           log("SDK event", "ready");
-          if (sdk.canAuthorize) finish(true);
-          else finish(false, "SDK ready but cannot authorize (check token/org)");
+          resolveOrForce("ready");
         });
       }
 
       // Fallback: poll canAuthorize in case the event already fired.
-      const poll = setInterval(() => {
-        if (sdk.canAuthorize) {
-          log("SDK ready", "canAuthorize=true (poll)");
-          finish(true);
-        }
-      }, 250);
+      const poll = setInterval(() => resolveOrForce("poll"), 250);
 
       const timer = setTimeout(() => {
+        if (!sdk.canAuthorize) {
+          log("Credentials state (timeout)", describeCredentials(sdk));
+          forceSupertoken(sdk, token);
+        }
         finish(
           sdk.canAuthorize,
           "Timed out waiting for SDK to authorize (token may be invalid for Meetings)"
@@ -220,7 +273,7 @@
       // credentials are ready throws "SDK cannot authorize". Wait until the
       // instance is ready and can authorize before proceeding.
       log("Register step", "waiting for SDK ready");
-      await waitForSdkReady(webexSdk);
+      await waitForSdkReady(webexSdk, token);
 
       try {
         log("Register step", "meetings.register");
