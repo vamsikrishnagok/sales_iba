@@ -1,10 +1,9 @@
 # Webex Live Transcript &rarr; FastAPI
 
 A Webex Embedded App that captures **real-time meeting transcription** via the
-Webex JavaScript SDK and forwards every transcript chunk to a Python **FastAPI**
-backend. The frontend is a static site designed to be hosted on **GitHub
-Pages** and then registered as an embedded app on
-[developer.webex.com](https://developer.webex.com).
+Webex JavaScript SDK and displays transcripts live inside the embedded app.
+Forwarding to the backend is disabled in this branch — transcripts are shown
+in the UI only.
 
 ---
 
@@ -51,7 +50,7 @@ The page uses two distinct Webex SDKs:
 .
 ├── index.html              # GitHub Pages entry point
 ├── css/style.css
-├── js/app.js               # SDK init + transcription forwarding
+├── js/app.js               # SDK init + transcription display (no forwarding)
 ├── backend/
 │   ├── main.py             # FastAPI app
 │   └── requirements.txt
@@ -177,13 +176,11 @@ reach the backend over the network. The two simplest options are:
 3. Click the **Apps** button in the meeting toolbar and open
    "Live Transcript Forwarder".
 4. In the app UI:
-   1. Paste the **FastAPI backend URL** (e.g. your ngrok HTTPS URL +
-      `/transcripts`).
-   2. Paste your **Webex personal access token**.
-   3. Paste the **meeting destination** &mdash; this is typically the
-      meeting SIP URI (e.g. `123456789@webex.com`) or the personal-room
-      link of the host.
-   4. Click **Register Webex SDK**, then **Join &amp; Start Transcription**.
+  1. Paste your **Webex personal access token**.
+  2. Paste the **meeting destination** &mdash; this is typically the
+    meeting SIP URI (e.g. `123456789@webex.com`) or the personal-room
+    link of the host.
+  3. Click **Register Webex SDK**, then **Join &amp; Start Transcription**.
 5. Watch live transcript lines appear in the **Live Transcript** card and in
    the uvicorn console.
 

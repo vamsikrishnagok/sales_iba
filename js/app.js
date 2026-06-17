@@ -1,20 +1,18 @@
 /* global Webex */
 /*
- * Webex Embedded App: Live Transcript Forwarder
+ * Webex Embedded App: Live Transcript Viewer
  *
  * - Initializes the Webex Embedded App Framework SDK so the page can run
  *   inside Webex (meetings or spaces).
  * - Uses the Webex JavaScript SDK to join the active meeting with
  *   `receiveTranscription: true` and listens for transcription events.
- * - Forwards each transcription payload to a user-supplied FastAPI endpoint
- *   via HTTP POST.
+ * - Displays transcription payloads in the UI (forwarding disabled).
  */
 
 (function () {
   "use strict";
 
   const els = {
-    backendUrl: document.getElementById("backendUrl"),
     accessToken: document.getElementById("accessToken"),
     meetingDestination: document.getElementById("meetingDestination"),
     btnRegister: document.getElementById("btnRegister"),
@@ -54,7 +52,6 @@
 
   function persistInputs() {
     try {
-      localStorage.setItem("backendUrl", els.backendUrl.value.trim());
       localStorage.setItem("meetingDestination", els.meetingDestination.value.trim());
     } catch (_) {
       /* ignore */
@@ -63,7 +60,6 @@
 
   function restoreInputs() {
     try {
-      els.backendUrl.value = localStorage.getItem("backendUrl") || "";
       els.meetingDestination.value = localStorage.getItem("meetingDestination") || "";
     } catch (_) {
       /* ignore */
@@ -213,7 +209,6 @@
 
   function handleTranscription(payload) {
     renderTranscript(payload);
-    forwardToBackend(payload);
   }
 
   function renderTranscript(payload) {
@@ -244,38 +239,15 @@
   }
 
   async function forwardToBackend(payload) {
-    const url = els.backendUrl.value.trim();
-    if (!url) return;
-
-    const body = {
-      id: payload.id,
-      personId: payload.personID,
-      transcription: payload.transcription,
-      timestamp: payload.timestamp || new Date().toISOString(),
-      type: payload.type || "final",
-      meetingId: activeMeeting && activeMeeting.id,
-    };
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        mode: "cors",
-      });
-      if (!res.ok) {
-        log("Backend non-2xx", res.status);
-      }
-    } catch (err) {
-      log("Backend POST failed", err && err.message);
-    }
+    // Forwarding disabled in this development branch. Left intentionally
+    // empty so the app only displays live transcription in the UI.
   }
 
   // ---------- wire up ----------
 
   function init() {
     restoreInputs();
-    els.backendUrl.addEventListener("change", persistInputs);
+    // backend forwarding removed; only persist meetingDestination
     els.meetingDestination.addEventListener("change", persistInputs);
 
     els.btnRegister.addEventListener("click", registerSdk);

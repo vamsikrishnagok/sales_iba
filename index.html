@@ -15,25 +15,14 @@
   <body>
     <main class="container">
       <header>
-        <h1>Live Transcript &rarr; FastAPI</h1>
+        <h1>Live Transcript Viewer</h1>
         <p class="subtitle">
-          Streams Webex Assistant's real-time transcription to your backend.
+          Displays Webex Assistant's real-time transcription inside the app.
         </p>
       </header>
 
       <section class="card">
         <h2>1. Configuration</h2>
-
-        <label for="backendUrl">FastAPI backend URL</label>
-        <input
-          id="backendUrl"
-          type="url"
-          placeholder="https://your-backend.example.com/transcripts"
-        />
-        <small>
-          Endpoint receiving <code>POST</code> JSON payloads. Must be HTTPS
-          when this page is served via HTTPS (GitHub Pages).
-        </small>
 
         <label for="accessToken">Webex personal access token</label>
         <input
