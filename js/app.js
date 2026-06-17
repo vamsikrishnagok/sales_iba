@@ -128,11 +128,13 @@
   async function loginWithWebex() {
     const clientId = els.clientId.value.trim();
     if (!clientId) {
-      alert("Enter your Webex Integration Client ID first.");
+      log("Login aborted: enter your Webex Integration Client ID first.");
+      setAuthStatus("Enter Client ID", "err");
       return;
     }
     if (typeof window.Webex === "undefined" || !window.Webex.init) {
-      alert("Webex JS SDK failed to load. Check your network or the CDN URL.");
+      log("Login aborted: Webex JS SDK failed to load (check network/CDN).");
+      setAuthStatus("SDK not loaded", "err");
       return;
     }
     persistInputs();
@@ -357,9 +359,8 @@
 
   async function registerSdk() {
     if (typeof window.Webex === "undefined" || !window.Webex.init) {
-      alert(
-        "Webex JS SDK failed to load. Check your network or the CDN URL in index.html."
-      );
+      log("Register aborted: Webex JS SDK failed to load (check network/CDN).");
+      setStatus("SDK not loaded", "err");
       return;
     }
 
@@ -372,8 +373,8 @@
         // Fallback: a pasted personal access token (testing only).
         const token = normalizeToken(els.accessToken.value);
         if (!token) {
-          alert("Sign in with Webex first (or paste a personal token under Advanced).");
-          setStatus("Idle", "idle");
+          log("Register aborted: not signed in and no personal token provided.");
+          setStatus("Sign in first", "err");
           return;
         }
         const me = await validateAccessToken(token);
@@ -418,14 +419,39 @@
     }
   }
 
-  async function joinMeeting() {
-    if (!webexSdk) {
-      alert("Register the SDK first.");
-      return;
+  // Looks for a meeting the SDK already knows about (you're typically already
+  // in it via the desktop client when running as an embedded app). Returns the
+  // meeting object or null.
+  function findExistingMeeting() {
+    try {
+      const meetings = webexSdk.meetings;
+      // Try the documented collection accessors across SDK versions.
+      let all = null;
+      if (meetings.getAllMeetings) {
+        all = meetings.getAllMeetings();
+      } else if (meetings.meetingCollection && meetings.meetingCollection.getAll) {
+        all = meetings.meetingCollection.getAll();
+      } else if (meetings.meetingCollection && meetings.meetingCollection.meetings) {
+        all = meetings.meetingCollection.meetings;
+      }
+      const list = all ? Object.values(all) : [];
+      log("Existing meetings known to SDK", list.length);
+      // Prefer one that is active/joined, else the first one.
+      const active = list.find(
+        (m) => m && (m.joinedWith || m.locusInfo || m.partner || m.meetingState)
+      );
+      return active || list[0] || null;
+    } catch (e) {
+      log("findExistingMeeting error", e && e.message);
+      return null;
     }
-    let destination = els.meetingDestination.value.trim();
-    if (!destination) {
-      alert("Meeting destination not detected or provided. Paste the meeting SIP URI, number, or link.");
+  }
+
+  async function joinMeeting() {
+    log("Join clicked");
+    if (!webexSdk) {
+      setStatus("Register the SDK first", "err");
+      log("Join aborted: SDK not registered");
       return;
     }
 
@@ -433,7 +459,26 @@
     setStatus("Joining...", "pending");
 
     try {
-      const meeting = await webexSdk.meetings.create(destination);
+      let meeting = null;
+      const destination = els.meetingDestination.value.trim();
+
+      if (destination) {
+        log("Creating meeting from destination", destination);
+        meeting = await webexSdk.meetings.create(destination);
+      } else {
+        // No destination typed: reuse the meeting you're already in.
+        log("No destination provided; searching SDK for the active meeting");
+        meeting = findExistingMeeting();
+        if (!meeting) {
+          setStatus("No meeting found", "err");
+          log(
+            "Join aborted: no destination and no active meeting in SDK. Paste the meeting number/link into 'Meeting destination'."
+          );
+          return;
+        }
+        log("Using existing meeting", meeting.id || meeting.sipUri || "(unknown id)");
+      }
+
       activeMeeting = meeting;
       bindMeetingEvents(meeting);
 
@@ -595,7 +640,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v11");
+    log("App initialized", "build v12");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
