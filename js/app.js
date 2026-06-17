@@ -208,9 +208,11 @@
       const me = await validateAccessToken(token);
       log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
 
+      // `credentials` must be at the TOP level of init() options. Nesting it
+      // under `config` makes the SDK ignore the token, leaving canAuthorize false.
       webexSdk = window.Webex.init({
-        config: {
-          credentials: { access_token: token },
+        credentials: {
+          access_token: token,
         },
       });
 
