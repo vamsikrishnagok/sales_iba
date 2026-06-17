@@ -51,6 +51,25 @@
     els.status.className = "status status-" + (kind || "idle");
   }
 
+  function normalizeToken(rawToken) {
+    const token = String(rawToken || "").trim();
+    if (!token) return "";
+    // Users often paste "Bearer <token>" from curl snippets.
+    return token.replace(/^Bearer\s+/i, "").trim();
+  }
+
+  async function validateAccessToken(token) {
+    const res = await fetch("https://webexapis.com/v1/people/me", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Token check failed (${res.status}): ${body.slice(0, 200)}`);
+    }
+    return res.json();
+  }
+
   function persistInputs() {
     try {
       localStorage.setItem("meetingDestination", els.meetingDestination.value.trim());
@@ -127,7 +146,7 @@
   // ---------- Webex JS SDK ----------
 
   async function registerSdk() {
-    const token = els.accessToken.value.trim();
+    const token = normalizeToken(els.accessToken.value);
     if (!token) {
       alert("Please paste a Webex personal access token first.");
       return;
@@ -141,6 +160,9 @@
 
     setStatus("Registering...", "pending");
     try {
+      const me = await validateAccessToken(token);
+      log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
+
       webexSdk = window.Webex.init({
         config: {
           credentials: { access_token: token },
@@ -155,6 +177,9 @@
       els.btnJoin.disabled = false;
     } catch (err) {
       log("registerSdk failed", err && (err.message || err));
+      if (String(err && err.message).includes("Token check failed (401)")) {
+        log("Hint", "Use a fresh Personal Access Token from developer.webex.com (12h expiry).");
+      }
       setStatus("Register failed", "err");
     }
   }
