@@ -261,13 +261,12 @@
       const me = await validateAccessToken(token);
       log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
 
-      // Pass the access token as a raw string. The WebexCore constructor wires
-      // a string credential straight into `credentials.supertoken` synchronously,
-      // which is the documented path for personal/bot tokens. The object form
-      // ({ credentials: { access_token } }) goes through an async normalization
-      // that can leave the token unwired (canAuthorize true but no auth header).
+      // Documented form for personal/bot tokens (matches the official Webex
+      // browser quickstart). The token must sit under credentials.access_token.
       webexSdk = window.Webex.init({
-        credentials: token,
+        credentials: {
+          access_token: token,
+        },
       });
 
       // The SDK initializes asynchronously. Calling meetings.register() before
@@ -428,7 +427,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v7");
+    log("App initialized", "build v8");
   }
 
   if (document.readyState === "loading") {
