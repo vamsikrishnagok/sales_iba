@@ -169,7 +169,22 @@
         },
       });
 
-      await webexSdk.meetings.register();
+      try {
+        log("Register step", "meetings.register");
+        await webexSdk.meetings.register();
+      } catch (registerErr) {
+        log("meetings.register failed", registerErr && (registerErr.message || registerErr));
+
+        // Fallback for environments where meetings.register fails before device registration.
+        if (webexSdk.internal && webexSdk.internal.device && webexSdk.internal.device.register) {
+          log("Fallback step", "internal.device.register");
+          await webexSdk.internal.device.register();
+        } else {
+          throw registerErr;
+        }
+      }
+
+      log("Register step", "meetings.syncMeetings");
       await webexSdk.meetings.syncMeetings();
 
       log("Webex SDK registered & meetings synced");
@@ -177,8 +192,11 @@
       els.btnJoin.disabled = false;
     } catch (err) {
       log("registerSdk failed", err && (err.message || err));
+      log("registerSdk details", safeJson(err));
       if (String(err && err.message).includes("Token check failed (401)")) {
         log("Hint", "Use a fresh Personal Access Token from developer.webex.com (12h expiry).");
+      } else if (String(err && err.message).includes("SDK cannot authorize")) {
+        log("Hint", "Token is valid for REST but not accepted by Meetings auth. Try a token from the same Webex org/account currently in the meeting client.");
       }
       setStatus("Register failed", "err");
     }
