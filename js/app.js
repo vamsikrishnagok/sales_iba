@@ -484,6 +484,11 @@
 
       await meeting.join({ receiveTranscription: true });
       log("Joined meeting; subscribing to transcription...");
+      log("Join state", {
+        isJoined: typeof meeting.isJoined === "function" ? meeting.isJoined() : "n/a",
+        state: meeting.state,
+        joinedWith: meeting.joinedWith && meeting.joinedWith.state,
+      });
 
       // receiveTranscription only SUBSCRIBES to captions. Webex still has to be
       // producing them. Actively turn transcription on so captions start
@@ -514,6 +519,12 @@
       // still render even if the scoped meeting:caption-received event doesn't
       // reach our listener in this embedded context.
       startCaptionPolling();
+
+      // After a few seconds, report whether the transcription engine actually
+      // connected. If llmConnected is false / voiceaJoined is false, captions
+      // will never arrive — the meeting host must enable Webex Assistant or
+      // Closed Captions (or org policy is blocking transcription).
+      setTimeout(() => logTranscriptionDiagnostics(meeting), 6000);
 
       setStatus("In meeting", "ok");
       els.btnJoin.disabled = true;
@@ -546,6 +557,36 @@
       log("voicea event listeners attached");
     } catch (e) {
       log("bindVoiceaEvents error", e && e.message);
+    }
+  }
+
+  // Logs the LLM / voicea connection state so we can tell whether the
+  // transcription engine actually connected. If it didn't, no captions arrive.
+  function logTranscriptionDiagnostics(meeting) {
+    try {
+      const llm = webexSdk.internal && webexSdk.internal.llm;
+      const voicea = webexSdk.internal && webexSdk.internal.voicea;
+      const captionCount =
+        (meeting.transcription &&
+          meeting.transcription.captions &&
+          meeting.transcription.captions.length) ||
+        0;
+      log("Transcription diagnostics", {
+        isJoined: typeof meeting.isJoined === "function" ? meeting.isJoined() : "n/a",
+        llmConnected:
+          llm && typeof llm.isConnected === "function" ? llm.isConnected() : Boolean(llm),
+        voiceaPresent: Boolean(voicea),
+        areCaptionsEnabled: voicea && voicea.areCaptionsEnabled,
+        captionStatus: voicea && voicea.captionStatus,
+        captionsSoFar: captionCount,
+      });
+      if (captionCount === 0) {
+        log(
+          "No captions yet. If this stays 0 while people speak, Webex Assistant/Closed Captions must be enabled by the host for this meeting."
+        );
+      }
+    } catch (e) {
+      log("logTranscriptionDiagnostics error", e && e.message);
     }
   }
 
@@ -707,7 +748,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v13");
+    log("App initialized", "build v14");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
