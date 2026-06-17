@@ -22,19 +22,53 @@
       </header>
 
       <section class="card">
-        <h2>1. Configuration</h2>
+        <h2>1. Sign in to Webex</h2>
 
-        <label for="accessToken">Webex personal access token</label>
+        <label for="clientId">Webex Integration Client ID</label>
         <input
-          id="accessToken"
-          type="password"
-          placeholder="Paste token from developer.webex.com"
+          id="clientId"
+          type="text"
+          placeholder="C... (from your OAuth Integration at developer.webex.com)"
           autocomplete="off"
         />
         <small>
-          Required to authenticate the Webex JS SDK. The token is held in
-          memory only and never transmitted anywhere except to Webex.
+          Create an <strong>Integration</strong> (not a personal token) at
+          developer.webex.com → My Webex Apps → Create an Integration. The
+          meetings SDK needs a downscopable OAuth token, which only an
+          Integration can issue.
         </small>
+
+        <label for="redirectUri">Redirect URI (copy this into your Integration)</label>
+        <input id="redirectUri" type="text" readonly />
+        <small>
+          Paste this exact value into your Integration's
+          <em>Redirect URI(s)</em> field, and add the scopes
+          <code>spark:all</code> and <code>spark:kms</code>.
+        </small>
+
+        <div class="actions">
+          <button id="btnLogin" type="button">Login with Webex</button>
+          <button id="btnLogout" type="button" disabled>Logout</button>
+        </div>
+        <p>
+          Sign-in: <span id="authStatus" class="status status-idle">Not signed in</span>
+        </p>
+
+        <details>
+          <summary>Advanced: use a personal access token instead</summary>
+          <label for="accessToken">Webex personal access token (testing only)</label>
+          <input
+            id="accessToken"
+            type="password"
+            placeholder="Paste token from developer.webex.com"
+            autocomplete="off"
+          />
+          <small>
+            Personal tokens work for the REST check but usually fail the
+            meetings auth (they cannot be downscoped). Prefer the Integration
+            login above.
+          </small>
+        </details>
 
         <label for="meetingDestination">Meeting destination (optional)</label>
         <input
@@ -77,6 +111,6 @@
     </main>
 
     <!-- Bump the ?v= query whenever app.js changes to bypass Webex's aggressive cache. -->
-    <script src="./js/app.js?v=8"></script>
+    <script src="./js/app.js?v=9"></script>
   </body>
 </html>

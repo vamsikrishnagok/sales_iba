@@ -13,16 +13,24 @@
   "use strict";
 
   const els = {
+    clientId: document.getElementById("clientId"),
+    redirectUri: document.getElementById("redirectUri"),
     accessToken: document.getElementById("accessToken"),
     meetingDestination: document.getElementById("meetingDestination"),
+    btnLogin: document.getElementById("btnLogin"),
+    btnLogout: document.getElementById("btnLogout"),
     btnRegister: document.getElementById("btnRegister"),
     btnJoin: document.getElementById("btnJoin"),
     btnLeave: document.getElementById("btnLeave"),
     status: document.getElementById("status"),
+    authStatus: document.getElementById("authStatus"),
     embeddedCtx: document.getElementById("embeddedCtx"),
     transcriptBox: document.getElementById("transcriptBox"),
     log: document.getElementById("log"),
   };
+
+  // Scopes required for the meetings SDK + real-time transcription.
+  const OAUTH_SCOPE = "spark:all spark:kms";
 
   let webexSdk = null;
   let activeMeeting = null;
@@ -73,6 +81,7 @@
   function persistInputs() {
     try {
       localStorage.setItem("meetingDestination", els.meetingDestination.value.trim());
+      localStorage.setItem("webexClientId", els.clientId.value.trim());
     } catch (_) {
       /* ignore */
     }
@@ -81,8 +90,111 @@
   function restoreInputs() {
     try {
       els.meetingDestination.value = localStorage.getItem("meetingDestination") || "";
+      els.clientId.value = localStorage.getItem("webexClientId") || "";
     } catch (_) {
       /* ignore */
+    }
+  }
+
+  // The redirect URI must EXACTLY match one registered on the Integration.
+  // Strip any OAuth hash/query the SDK may have appended on return.
+  function getRedirectUri() {
+    return window.location.origin + window.location.pathname;
+  }
+
+  // ---------- Webex OAuth login ----------
+
+  function setAuthStatus(text, kind) {
+    if (!els.authStatus) return;
+    els.authStatus.textContent = text;
+    els.authStatus.className = "status status-" + (kind || "idle");
+  }
+
+  // Initializes the JS SDK in OAuth mode. On return from the Webex login
+  // redirect, the browser auth plugin automatically parses the access token
+  // from the URL hash, yielding a downscopable token (unlike a personal token).
+  function initOAuthSdk(clientId) {
+    return window.Webex.init({
+      config: {
+        credentials: {
+          client_id: clientId,
+          redirect_uri: getRedirectUri(),
+          scope: OAUTH_SCOPE,
+        },
+      },
+    });
+  }
+
+  async function loginWithWebex() {
+    const clientId = els.clientId.value.trim();
+    if (!clientId) {
+      alert("Enter your Webex Integration Client ID first.");
+      return;
+    }
+    if (typeof window.Webex === "undefined" || !window.Webex.init) {
+      alert("Webex JS SDK failed to load. Check your network or the CDN URL.");
+      return;
+    }
+    persistInputs();
+    setAuthStatus("Redirecting to Webex...", "pending");
+    try {
+      webexSdk = initOAuthSdk(clientId);
+      log("Initiating Webex OAuth login", { redirectUri: getRedirectUri() });
+      await webexSdk.authorization.initiateLogin();
+    } catch (err) {
+      log("loginWithWebex failed", err && (err.message || err));
+      setAuthStatus("Login failed", "err");
+    }
+  }
+
+  // Called on page load. If a client_id is stored, init the SDK so the auth
+  // plugin can parse a token returned in the URL hash after a login redirect.
+  async function restoreOAuthSession() {
+    const clientId = els.clientId.value.trim();
+    if (!clientId || typeof window.Webex === "undefined" || !window.Webex.init) {
+      return;
+    }
+    try {
+      webexSdk = initOAuthSdk(clientId);
+      // Give the browser auth plugin a moment to parse the hash and load.
+      await new Promise((resolve) => {
+        if (webexSdk.canAuthorize) return resolve();
+        const done = () => resolve();
+        if (typeof webexSdk.once === "function") webexSdk.once("ready", done);
+        setTimeout(done, 4000);
+      });
+      if (webexSdk.canAuthorize) {
+        log("Restored Webex OAuth session", "canAuthorize=true");
+        onSignedIn();
+      } else {
+        setAuthStatus("Not signed in", "idle");
+      }
+    } catch (err) {
+      log("restoreOAuthSession error", err && (err.message || err));
+    }
+  }
+
+  function onSignedIn() {
+    setAuthStatus("Signed in", "ok");
+    els.btnLogin.disabled = true;
+    els.btnLogout.disabled = false;
+    els.btnRegister.disabled = false;
+  }
+
+  async function logout() {
+    try {
+      if (webexSdk && webexSdk.logout) {
+        await webexSdk.logout();
+      }
+    } catch (err) {
+      log("logout error", err && (err.message || err));
+    } finally {
+      webexSdk = null;
+      setAuthStatus("Not signed in", "idle");
+      els.btnLogin.disabled = false;
+      els.btnLogout.disabled = true;
+      els.btnJoin.disabled = true;
+      setStatus("Idle", "idle");
     }
   }
 
@@ -244,11 +356,6 @@
   }
 
   async function registerSdk() {
-    const token = normalizeToken(els.accessToken.value);
-    if (!token) {
-      alert("Please paste a Webex personal access token first.");
-      return;
-    }
     if (typeof window.Webex === "undefined" || !window.Webex.init) {
       alert(
         "Webex JS SDK failed to load. Check your network or the CDN URL in index.html."
@@ -258,22 +365,25 @@
 
     setStatus("Registering...", "pending");
     try {
-      const me = await validateAccessToken(token);
-      log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
-
-      // Documented form for personal/bot tokens (matches the official Webex
-      // browser quickstart). The token must sit under credentials.access_token.
-      webexSdk = window.Webex.init({
-        credentials: {
-          access_token: token,
-        },
-      });
-
-      // The SDK initializes asynchronously. Calling meetings.register() before
-      // credentials are ready throws "SDK cannot authorize". Wait until the
-      // instance is ready and can authorize before proceeding.
-      log("Register step", "waiting for SDK ready");
-      await waitForSdkReady(webexSdk, token);
+      // Preferred path: the OAuth-authorized SDK from the Webex login.
+      if (webexSdk && webexSdk.canAuthorize) {
+        log("Register step", "using signed-in OAuth session");
+      } else {
+        // Fallback: a pasted personal access token (testing only).
+        const token = normalizeToken(els.accessToken.value);
+        if (!token) {
+          alert("Sign in with Webex first (or paste a personal token under Advanced).");
+          setStatus("Idle", "idle");
+          return;
+        }
+        const me = await validateAccessToken(token);
+        log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
+        webexSdk = window.Webex.init({
+          credentials: { access_token: token },
+        });
+        log("Register step", "waiting for SDK ready");
+        await waitForSdkReady(webexSdk, token);
+      }
 
       try {
         log("Register step", "meetings.register");
@@ -419,15 +529,31 @@
 
   function init() {
     restoreInputs();
-    // backend forwarding removed; only persist meetingDestination
+    // Show the redirect URI the user must register on their Integration.
+    els.redirectUri.value = getRedirectUri();
+    // backend forwarding removed; only persist meetingDestination + clientId
     els.meetingDestination.addEventListener("change", persistInputs);
+    els.clientId.addEventListener("change", persistInputs);
 
+    // Register requires a signed-in session first.
+    els.btnRegister.disabled = true;
+
+    // Allow the Advanced personal-token fallback to enable Register too.
+    els.accessToken.addEventListener("input", () => {
+      if (els.accessToken.value.trim()) els.btnRegister.disabled = false;
+    });
+
+    els.btnLogin.addEventListener("click", loginWithWebex);
+    els.btnLogout.addEventListener("click", logout);
     els.btnRegister.addEventListener("click", registerSdk);
     els.btnJoin.addEventListener("click", joinMeeting);
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v8");
+    log("App initialized", "build v9");
+
+    // If returning from a Webex login redirect, pick up the token.
+    restoreOAuthSession();
   }
 
   if (document.readyState === "loading") {
