@@ -261,12 +261,13 @@
       const me = await validateAccessToken(token);
       log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
 
-      // `credentials` must be at the TOP level of init() options. Nesting it
-      // under `config` makes the SDK ignore the token, leaving canAuthorize false.
+      // Pass the access token as a raw string. The WebexCore constructor wires
+      // a string credential straight into `credentials.supertoken` synchronously,
+      // which is the documented path for personal/bot tokens. The object form
+      // ({ credentials: { access_token } }) goes through an async normalization
+      // that can leave the token unwired (canAuthorize true but no auth header).
       webexSdk = window.Webex.init({
-        credentials: {
-          access_token: token,
-        },
+        credentials: token,
       });
 
       // The SDK initializes asynchronously. Calling meetings.register() before
@@ -427,7 +428,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v6");
+    log("App initialized", "build v7");
   }
 
   if (document.readyState === "loading") {
