@@ -490,6 +490,13 @@
         joinedWith: meeting.joinedWith && meeting.joinedWith.state,
       });
 
+      // CRITICAL: Webex's transcription (voicea) is delivered over the LLM
+      // datachannel, which is only established once a media connection exists.
+      // Joining alone (no media) leaves llmConnected=false and captions never
+      // arrive. So we establish an audio media connection before turning on
+      // transcription. This adds the app as an audio participant.
+      await addAudioMedia(meeting);
+
       // receiveTranscription only SUBSCRIBES to captions. Webex still has to be
       // producing them. Actively turn transcription on so captions start
       // flowing even if no one enabled Webex Assistant manually. Requires the
@@ -532,6 +539,56 @@
     } catch (err) {
       log("joinMeeting failed", err && (err.message || err));
       setStatus("Join failed", "err");
+    }
+  }
+
+  // Establishes an audio media connection so the LLM datachannel (and thus
+  // transcription) comes up. Tries to send mic audio; if mic permission is
+  // unavailable (common inside an embedded-app iframe), falls back to a
+  // receive-only audio connection, which is still enough for the datachannel.
+  async function addAudioMedia(meeting) {
+    if (typeof meeting.addMedia !== "function") {
+      log("addMedia() not available on this SDK build");
+      return;
+    }
+    let microphone = null;
+    try {
+      const mediaHelpers = webexSdk.meetings && webexSdk.meetings.mediaHelpers;
+      if (mediaHelpers && mediaHelpers.createMicrophoneStream) {
+        microphone = await mediaHelpers.createMicrophoneStream({ audio: true });
+        log("Microphone stream created");
+      }
+    } catch (micErr) {
+      log(
+        "Microphone unavailable, using receive-only audio",
+        micErr && (micErr.message || micErr)
+      );
+    }
+
+    try {
+      const mediaOptions = microphone
+        ? {
+            localStreams: { microphone },
+            audioEnabled: true,
+            videoEnabled: false,
+            shareAudioEnabled: false,
+            shareVideoEnabled: false,
+          }
+        : {
+            // Receive-only: no local streams, but still negotiates media so the
+            // LLM datachannel (transcription) can connect.
+            audioEnabled: true,
+            videoEnabled: false,
+            shareAudioEnabled: false,
+            shareVideoEnabled: false,
+          };
+      await meeting.addMedia(mediaOptions);
+      log("addMedia() succeeded — media connection established");
+    } catch (mediaErr) {
+      log(
+        "addMedia() failed — transcription likely won't connect",
+        mediaErr && (mediaErr.message || mediaErr)
+      );
     }
   }
 
@@ -748,7 +805,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v14");
+    log("App initialized", "build v15");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
