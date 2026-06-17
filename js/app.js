@@ -438,8 +438,26 @@
       bindMeetingEvents(meeting);
 
       await meeting.join({ receiveTranscription: true });
+      log("Joined meeting; subscribing to transcription...");
 
-      log("Joined meeting; awaiting transcription...");
+      // receiveTranscription only SUBSCRIBES to captions. Webex still has to be
+      // producing them. Actively turn transcription on so captions start
+      // flowing even if no one enabled Webex Assistant manually. Requires the
+      // meeting to support transcription and the user to have permission.
+      if (typeof meeting.startTranscription === "function") {
+        try {
+          await meeting.startTranscription();
+          log("startTranscription() succeeded");
+        } catch (tErr) {
+          log(
+            "startTranscription() failed (host may need to enable Webex Assistant/Closed Captions)",
+            tErr && (tErr.message || tErr)
+          );
+        }
+      } else {
+        log("startTranscription() not available on this SDK build");
+      }
+
       setStatus("In meeting", "ok");
       els.btnJoin.disabled = true;
       els.btnLeave.disabled = false;
@@ -477,11 +495,22 @@
     // so we re-render the whole list each time it updates.
     meeting.on("meeting:caption-received", (payload) => {
       const captions = (payload && payload.captions) || [];
+      log("caption-received", { count: captions.length });
       renderTranscript(captions);
     });
 
     meeting.on("meeting:receiveTranscription:stopped", () => {
       log("Transcription stopped by Webex");
+    });
+
+    // Diagnostics: confirm the SDK fully joined and media is connected.
+    // Without a connected session, no captions are ever produced.
+    meeting.on("meeting:stateChange", (payload) => {
+      log("meeting:stateChange", payload && payload.currentState);
+    });
+
+    meeting.on("media:ready", (media) => {
+      log("media:ready", media && media.type);
     });
 
     meeting.on("error", (err) => {
@@ -566,7 +595,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v10");
+    log("App initialized", "build v11");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
