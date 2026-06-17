@@ -16,11 +16,33 @@ function setStatus(text) {
   console.log('[status]', text);
 }
 
-function appendTranscript(text) {
-  const line = document.createElement('div');
+// Tracks the live DOM line for each in-progress utterance (keyed by transcript id),
+// so interim updates replace the same line instead of stacking new ones.
+const transcriptLines = new Map();
+
+function renderTranscript(payload) {
+  if (!payload) return;
+
+  const text = (payload.transcription || '').trim();
+  if (!text) return;
+
+  const id = payload.id || `anon-${Date.now()}`;
+  const isFinal = payload.type === 'transcript_final_result';
+
+  let line = transcriptLines.get(id);
+  if (!line) {
+    line = document.createElement('div');
+    transcriptEl.appendChild(line);
+    transcriptLines.set(id, line);
+  }
+
   line.innerText = text;
-  transcriptEl.appendChild(line);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+  // Once finalized, stop tracking so the next utterance starts a fresh line.
+  if (isFinal) {
+    transcriptLines.delete(id);
+  }
 }
 
 // Must EXACTLY match a Redirect URI registered in your Webex Integration
@@ -100,7 +122,7 @@ async function joinAndTranscribe() {
   // Transcript chunks arrive through this event in the v3 SDK.
   meeting.on('meeting:receiveTranscription:started', (payload) => {
     if (payload && payload.transcription) {
-      appendTranscript(payload.transcription);
+      renderTranscript(payload);
     }
   });
 
