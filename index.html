@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webex Live Transcript Forwarder</title>
+    <link rel="stylesheet" href="./css/style.css" />
+
+    <!-- Webex Embedded App Framework SDK (required for embedded apps) -->
+    <script src="https://binaries.webex.com/static-content-pipeline/webex-embedded-app/v1/webex-embedded-app-sdk.js"></script>
+
+    <!-- Webex JavaScript SDK (used to subscribe to real-time transcription) -->
+    <script src="https://unpkg.com/webex@^3/umd/webex.min.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Live Transcript &rarr; FastAPI</h1>
+        <p class="subtitle">
+          Streams Webex Assistant's real-time transcription to your backend.
+        </p>
+      </header>
+
+      <section class="card">
+        <h2>1. Configuration</h2>
+
+        <label for="backendUrl">FastAPI backend URL</label>
+        <input
+          id="backendUrl"
+          type="url"
+          placeholder="https://your-backend.example.com/transcripts"
+        />
+        <small>
+          Endpoint receiving <code>POST</code> JSON payloads. Must be HTTPS
+          when this page is served via HTTPS (GitHub Pages).
+        </small>
+
+        <label for="accessToken">Webex personal access token</label>
+        <input
+          id="accessToken"
+          type="password"
+          placeholder="Paste token from developer.webex.com"
+          autocomplete="off"
+        />
+        <small>
+          Required to authenticate the Webex JS SDK. The token is held in
+          memory only and never transmitted anywhere except to Webex.
+        </small>
+
+        <label for="meetingDestination">Meeting destination (SIP URI, meeting number, or link)</label>
+        <input
+          id="meetingDestination"
+          type="text"
+          placeholder="123456789@webex.com or https://company.webex.com/meet/user"
+        />
+        <small>
+          The Webex JS SDK needs to join the meeting as a participant in order
+          to receive transcriptions. Webex Assistant must already be enabled
+          for the meeting.
+        </small>
+      </section>
+
+      <section class="card">
+        <h2>2. Controls</h2>
+        <div class="actions">
+          <button id="btnRegister" type="button">Register Webex SDK</button>
+          <button id="btnJoin" type="button" disabled>Join &amp; Start Transcription</button>
+          <button id="btnLeave" type="button" disabled>Leave Meeting</button>
+        </div>
+        <p>
+          Status: <span id="status" class="status status-idle">Idle</span>
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>3. Embedded App Context</h2>
+        <pre id="embeddedCtx">Not running inside Webex.</pre>
+      </section>
+
+      <section class="card">
+        <h2>4. Live Transcript</h2>
+        <div id="transcriptBox" class="transcript" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <h2>5. Log</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <script src="./js/app.js"></script>
+  </body>
+</html>
