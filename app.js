@@ -1,7 +1,7 @@
 /* global Webex */
 
 // --- Webex OAuth app credentials ---
-const CLIENT_ID = 'C7c3f1143a552d88d40b2afff87600c366c830850231597fb6c1c1e28a5110a4f';
+const CLIENT_ID = 'Cd7ffc2137ec3ab40ea41a5e20667f9b911baf16fa9697da8ac5b7dcc64d47a2b';
 const SCOPE = 'spark:all spark:kms';
 
 const loginBtn = document.querySelector('#login-btn');
