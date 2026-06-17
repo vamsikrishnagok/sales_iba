@@ -427,7 +427,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized");
+    log("App initialized", "build v6");
   }
 
   if (document.readyState === "loading") {
