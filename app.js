@@ -20,6 +20,26 @@ function setStatus(text) {
 // so interim updates replace the same line instead of stacking new ones.
 const transcriptLines = new Map();
 
+// Resolve a speaker's display name from the meeting's member list using the
+// personID the transcription payload carries. Falls back gracefully.
+function resolveSpeakerName(personID) {
+  if (!personID || !meeting) return 'Unknown';
+  try {
+    const members = meeting.members?.membersCollection?.members || {};
+    const list = Array.isArray(members) ? members : Object.values(members);
+    const match = list.find(
+      (m) => m?.id === personID || m?.participant?.person?.id === personID
+    );
+    return (
+      match?.name ||
+      match?.participant?.person?.name ||
+      'Unknown'
+    );
+  } catch {
+    return 'Unknown';
+  }
+}
+
 function renderTranscript(payload) {
   if (!payload) return;
 
@@ -28,6 +48,7 @@ function renderTranscript(payload) {
 
   const id = payload.id || `anon-${Date.now()}`;
   const isFinal = payload.type === 'transcript_final_result';
+  const speaker = resolveSpeakerName(payload.personID);
 
   let line = transcriptLines.get(id);
   if (!line) {
@@ -36,7 +57,11 @@ function renderTranscript(payload) {
     transcriptLines.set(id, line);
   }
 
-  line.innerText = text;
+  line.innerHTML = '';
+  const nameEl = document.createElement('strong');
+  nameEl.innerText = `${speaker}: `;
+  line.appendChild(nameEl);
+  line.appendChild(document.createTextNode(text));
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 
   // Once finalized, stop tracking so the next utterance starts a fresh line.
