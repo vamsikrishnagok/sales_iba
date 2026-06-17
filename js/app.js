@@ -121,6 +121,13 @@
   function initOAuthSdk(clientId) {
     return window.Webex.init({
       config: {
+        // Match the proven reference's meetings config — these flags affect how
+        // transcription/voicea connects and delivers caption events.
+        meetings: {
+          reconnection: { enabled: true },
+          enableRtx: true,
+          experimental: { enableUnifiedMeetings: true },
+        },
         credentials: {
           client_id: clientId,
           redirect_uri: getRedirectUri(),
@@ -385,6 +392,13 @@
         const me = await validateAccessToken(token);
         log("Token valid for user", me && me.emails ? me.emails[0] : me && me.id);
         webexSdk = window.Webex.init({
+          config: {
+            meetings: {
+              reconnection: { enabled: true },
+              enableRtx: true,
+              experimental: { enableUnifiedMeetings: true },
+            },
+          },
           credentials: { access_token: token },
         });
         log("Register step", "waiting for SDK ready");
@@ -814,7 +828,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v16");
+    log("App initialized", "build v17");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
