@@ -37,6 +37,11 @@
   let embeddedApp = null;
   let detectedMeetingInfo = null; // auto-detected from embedded context
 
+  // Running transcript accumulated from transcription events. This mirrors the
+  // proven reference implementation: the SDK delivers final transcript chunks
+  // via meeting:receiveTranscription:started with type "transcript_final_result".
+  const transcriptState = { transcript: "" };
+
   // ---------- helpers ----------
 
   function log(msg, obj) {
@@ -480,22 +485,28 @@
       }
 
       activeMeeting = meeting;
+      // Reset the running transcript for a fresh join.
+      transcriptState.transcript = "";
       bindMeetingEvents(meeting);
 
-      await meeting.join({ receiveTranscription: true });
+      // Match the proven reference: join with receiveTranscription. The SDK
+      // then emits meeting:receiveTranscription:started events carrying the
+      // transcript text (no addMedia needed).
+      const joinOptions = {
+        moveToResource: false,
+        resourceId:
+          webexSdk.devicemanager && webexSdk.devicemanager._pairedDevice
+            ? webexSdk.devicemanager._pairedDevice.identity.id
+            : undefined,
+        receiveTranscription: true,
+      };
+      await meeting.join(joinOptions);
       log("Joined meeting; subscribing to transcription...");
       log("Join state", {
         isJoined: typeof meeting.isJoined === "function" ? meeting.isJoined() : "n/a",
         state: meeting.state,
         joinedWith: meeting.joinedWith && meeting.joinedWith.state,
       });
-
-      // CRITICAL: Webex's transcription (voicea) is delivered over the LLM
-      // datachannel, which is only established once a media connection exists.
-      // Joining alone (no media) leaves llmConnected=false and captions never
-      // arrive. So we establish an audio media connection before turning on
-      // transcription. This adds the app as an audio participant.
-      await addAudioMedia(meeting);
 
       // receiveTranscription only SUBSCRIBES to captions. Webex still has to be
       // producing them. Actively turn transcription on so captions start
@@ -516,16 +527,9 @@
       }
 
       // Listen directly to the internal voicea (transcription engine) events.
-      // These fire before the higher-level meeting:caption-received and tell us
-      // whether the transcription websocket actually connected and is producing
-      // captions — invaluable for diagnosing "no captions" situations.
+      // These tell us whether the transcription websocket actually connected —
+      // invaluable for diagnosing "no captions" situations.
       bindVoiceaEvents();
-
-      // Fallback: regardless of event propagation, the SDK keeps the running
-      // caption list on meeting.transcription.captions. Poll it so captions
-      // still render even if the scoped meeting:caption-received event doesn't
-      // reach our listener in this embedded context.
-      startCaptionPolling();
 
       // After a few seconds, report whether the transcription engine actually
       // connected. If llmConnected is false / voiceaJoined is false, captions
@@ -539,56 +543,6 @@
     } catch (err) {
       log("joinMeeting failed", err && (err.message || err));
       setStatus("Join failed", "err");
-    }
-  }
-
-  // Establishes an audio media connection so the LLM datachannel (and thus
-  // transcription) comes up. Tries to send mic audio; if mic permission is
-  // unavailable (common inside an embedded-app iframe), falls back to a
-  // receive-only audio connection, which is still enough for the datachannel.
-  async function addAudioMedia(meeting) {
-    if (typeof meeting.addMedia !== "function") {
-      log("addMedia() not available on this SDK build");
-      return;
-    }
-    let microphone = null;
-    try {
-      const mediaHelpers = webexSdk.meetings && webexSdk.meetings.mediaHelpers;
-      if (mediaHelpers && mediaHelpers.createMicrophoneStream) {
-        microphone = await mediaHelpers.createMicrophoneStream({ audio: true });
-        log("Microphone stream created");
-      }
-    } catch (micErr) {
-      log(
-        "Microphone unavailable, using receive-only audio",
-        micErr && (micErr.message || micErr)
-      );
-    }
-
-    try {
-      const mediaOptions = microphone
-        ? {
-            localStreams: { microphone },
-            audioEnabled: true,
-            videoEnabled: false,
-            shareAudioEnabled: false,
-            shareVideoEnabled: false,
-          }
-        : {
-            // Receive-only: no local streams, but still negotiates media so the
-            // LLM datachannel (transcription) can connect.
-            audioEnabled: true,
-            videoEnabled: false,
-            shareAudioEnabled: false,
-            shareVideoEnabled: false,
-          };
-      await meeting.addMedia(mediaOptions);
-      log("addMedia() succeeded — media connection established");
-    } catch (mediaErr) {
-      log(
-        "addMedia() failed — transcription likely won't connect",
-        mediaErr && (mediaErr.message || mediaErr)
-      );
     }
   }
 
@@ -607,9 +561,14 @@
       voicea.on("voicea:transcribingOn", () => log("voicea:transcribingOn"));
       voicea.on("voicea:newCaption", (p) => {
         const t = p && p.transcripts && p.transcripts[0];
-        log("voicea:newCaption", t && t.text);
-        // Render directly from the SDK's accumulated caption list.
-        renderFromMeeting();
+        const text = t && t.text;
+        log("voicea:newCaption", text);
+        if (text) {
+          transcriptState.transcript = transcriptState.transcript
+            ? transcriptState.transcript + " " + text
+            : text;
+          renderTranscriptText(transcriptState.transcript, "");
+        }
       });
       log("voicea event listeners attached");
     } catch (e) {
@@ -694,19 +653,46 @@
   }
 
   function bindMeetingEvents(meeting) {
-    // Fires once when transcription is enabled for the meeting. No caption
-    // data here — it only confirms Webex Assistant/transcription is on.
+    // PRIMARY transcript stream (proven reference pattern). This event fires
+    // repeatedly while people speak. Each payload carries:
+    //   payload.type          e.g. "transcript_interim_results" | "transcript_final_result"
+    //   payload.transcription the recognized text for that chunk
+    // We accumulate the final chunks into a running transcript and render it.
     meeting.on("meeting:receiveTranscription:started", (payload) => {
-      log("Transcription started by Webex", payload && payload.captionLanguages);
+      try {
+        if (payload && payload.type === "transcript_final_result" && payload.transcription) {
+          transcriptState.transcript =
+            transcriptState.transcript
+              ? transcriptState.transcript + " " + payload.transcription
+              : payload.transcription;
+          log("transcript_final_result", payload.transcription);
+          renderTranscriptText(transcriptState.transcript, "");
+        } else if (payload && payload.transcription) {
+          // Interim result: show it appended to the running transcript without
+          // committing it, so the UI updates live as words are recognized.
+          log("transcript interim", payload.transcription);
+          renderTranscriptText(transcriptState.transcript, payload.transcription);
+        } else if (payload && payload.captionLanguages) {
+          // Older one-time "started" signal with no text.
+          log("Transcription started by Webex", payload.captionLanguages);
+        } else {
+          log("receiveTranscription event", payload && payload.type);
+        }
+      } catch (e) {
+        log("transcription handler error", e && e.message);
+      }
     });
 
-    // The real live-caption stream. Webex maintains a running list of caption
-    // objects in payload.captions (interim entries get replaced by final ones),
-    // so we re-render the whole list each time it updates.
+    // Newer SDK live-caption stream (kept as a secondary path). Webex maintains
+    // a running list of caption objects in payload.captions.
     meeting.on("meeting:caption-received", (payload) => {
       const captions = (payload && payload.captions) || [];
       log("caption-received", { count: captions.length });
-      renderTranscript(captions);
+      const text = captions
+        .map((c) => c && c.text)
+        .filter(Boolean)
+        .join(" ");
+      if (text) renderTranscriptText(text, "");
     });
 
     meeting.on("meeting:receiveTranscription:stopped", () => {
@@ -737,6 +723,29 @@
   }
 
   // ---------- Transcription handling ----------
+
+  // Renders the running transcript as plain accumulated text (matches the
+  // proven reference, which keeps a single growing transcript string). The
+  // optional interim chunk is shown faded at the end until it's finalized.
+  function renderTranscriptText(finalText, interimText) {
+    els.transcriptBox.innerHTML = "";
+
+    if (finalText) {
+      const finalDiv = document.createElement("div");
+      finalDiv.className = "line";
+      finalDiv.textContent = finalText;
+      els.transcriptBox.appendChild(finalDiv);
+    }
+
+    if (interimText) {
+      const interimDiv = document.createElement("div");
+      interimDiv.className = "line interim";
+      interimDiv.textContent = interimText;
+      els.transcriptBox.appendChild(interimDiv);
+    }
+
+    els.transcriptBox.scrollTop = els.transcriptBox.scrollHeight;
+  }
 
   // Renders the full running caption list. Each caption looks like:
   // { id, isFinal, text, speaker: { name, speakerId }, timestamp }
@@ -805,7 +814,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v15");
+    log("App initialized", "build v16");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
