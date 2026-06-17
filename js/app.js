@@ -503,6 +503,18 @@
         log("startTranscription() not available on this SDK build");
       }
 
+      // Listen directly to the internal voicea (transcription engine) events.
+      // These fire before the higher-level meeting:caption-received and tell us
+      // whether the transcription websocket actually connected and is producing
+      // captions — invaluable for diagnosing "no captions" situations.
+      bindVoiceaEvents();
+
+      // Fallback: regardless of event propagation, the SDK keeps the running
+      // caption list on meeting.transcription.captions. Poll it so captions
+      // still render even if the scoped meeting:caption-received event doesn't
+      // reach our listener in this embedded context.
+      startCaptionPolling();
+
       setStatus("In meeting", "ok");
       els.btnJoin.disabled = true;
       els.btnLeave.disabled = false;
@@ -512,9 +524,64 @@
     }
   }
 
+  // Subscribes to the internal voicea plugin events for diagnostics.
+  function bindVoiceaEvents() {
+    try {
+      const voicea = webexSdk.internal && webexSdk.internal.voicea;
+      if (!voicea || typeof voicea.on !== "function") {
+        log("voicea plugin not available on this SDK build");
+        return;
+      }
+      voicea.on("voicea:announcement", (p) => {
+        log("voicea:announcement (transcription engine joined)", p && p.captionLanguages);
+      });
+      voicea.on("voicea:captionOn", () => log("voicea:captionOn"));
+      voicea.on("voicea:transcribingOn", () => log("voicea:transcribingOn"));
+      voicea.on("voicea:newCaption", (p) => {
+        const t = p && p.transcripts && p.transcripts[0];
+        log("voicea:newCaption", t && t.text);
+        // Render directly from the SDK's accumulated caption list.
+        renderFromMeeting();
+      });
+      log("voicea event listeners attached");
+    } catch (e) {
+      log("bindVoiceaEvents error", e && e.message);
+    }
+  }
+
+  let captionPollTimer = null;
+
+  function startCaptionPolling() {
+    stopCaptionPolling();
+    captionPollTimer = setInterval(renderFromMeeting, 1500);
+  }
+
+  function stopCaptionPolling() {
+    if (captionPollTimer) {
+      clearInterval(captionPollTimer);
+      captionPollTimer = null;
+    }
+  }
+
+  // Renders whatever captions the SDK currently holds on the meeting object.
+  function renderFromMeeting() {
+    try {
+      const captions =
+        activeMeeting &&
+        activeMeeting.transcription &&
+        activeMeeting.transcription.captions;
+      if (captions && captions.length) {
+        renderTranscript(captions);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   async function leaveMeeting() {
     if (!activeMeeting) return;
     setStatus("Leaving...", "pending");
+    stopCaptionPolling();
     try {
       await activeMeeting.leave();
       log("Left meeting");
@@ -640,7 +707,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v12");
+    log("App initialized", "build v13");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
