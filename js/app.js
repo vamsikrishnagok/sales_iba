@@ -466,8 +466,18 @@
   }
 
   function bindMeetingEvents(meeting) {
+    // Fires once when transcription is enabled for the meeting. No caption
+    // data here — it only confirms Webex Assistant/transcription is on.
     meeting.on("meeting:receiveTranscription:started", (payload) => {
-      handleTranscription(payload);
+      log("Transcription started by Webex", payload && payload.captionLanguages);
+    });
+
+    // The real live-caption stream. Webex maintains a running list of caption
+    // objects in payload.captions (interim entries get replaced by final ones),
+    // so we re-render the whole list each time it updates.
+    meeting.on("meeting:caption-received", (payload) => {
+      const captions = (payload && payload.captions) || [];
+      renderTranscript(captions);
     });
 
     meeting.on("meeting:receiveTranscription:stopped", () => {
@@ -489,30 +499,36 @@
 
   // ---------- Transcription handling ----------
 
-  function handleTranscription(payload) {
-    renderTranscript(payload);
-  }
+  // Renders the full running caption list. Each caption looks like:
+  // { id, isFinal, text, speaker: { name, speakerId }, timestamp }
+  function renderTranscript(captions) {
+    els.transcriptBox.innerHTML = "";
 
-  function renderTranscript(payload) {
-    const line = document.createElement("div");
-    line.className = "line" + (payload.type === "interim" ? " interim" : "");
+    captions.forEach((caption) => {
+      const line = document.createElement("div");
+      line.className = "line" + (caption.isFinal === false ? " interim" : "");
 
-    const speaker = document.createElement("span");
-    speaker.className = "speaker";
-    speaker.textContent = payload.personID ? `User ${shortId(payload.personID)}` : "Speaker";
+      const speaker = document.createElement("span");
+      speaker.className = "speaker";
+      speaker.textContent =
+        (caption.speaker && caption.speaker.name) ||
+        (caption.speaker && `User ${shortId(caption.speaker.speakerId)}`) ||
+        "Speaker";
 
-    const ts = document.createElement("span");
-    ts.className = "ts";
-    ts.textContent = payload.timestamp || new Date().toISOString();
+      const ts = document.createElement("span");
+      ts.className = "ts";
+      ts.textContent = caption.timestamp || "";
 
-    const text = document.createElement("div");
-    text.textContent = payload.transcription || "";
+      const text = document.createElement("div");
+      text.textContent = caption.text || "";
 
-    line.appendChild(speaker);
-    line.appendChild(ts);
-    line.appendChild(text);
+      line.appendChild(speaker);
+      line.appendChild(ts);
+      line.appendChild(text);
 
-    els.transcriptBox.appendChild(line);
+      els.transcriptBox.appendChild(line);
+    });
+
     els.transcriptBox.scrollTop = els.transcriptBox.scrollHeight;
   }
 
@@ -550,7 +566,7 @@
     els.btnLeave.addEventListener("click", leaveMeeting);
 
     initEmbeddedFramework();
-    log("App initialized", "build v9");
+    log("App initialized", "build v10");
 
     // If returning from a Webex login redirect, pick up the token.
     restoreOAuthSession();
