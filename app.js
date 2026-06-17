@@ -23,8 +23,12 @@ function appendTranscript(text) {
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
+// Must EXACTLY match a Redirect URI registered in your Webex Integration
+// (developer.webex.com -> My Webex Apps -> your Integration -> Redirect URI(s)).
+const REDIRECT_URI = 'https://vamsikrishnagok.github.io/sales_iba/';
+
 function initWebex() {
-  const redirectUri = `${location.protocol}//${location.host}${location.pathname}`;
+  const redirectUri = REDIRECT_URI;
 
   webex = window.webex = Webex.init({
     config: {
