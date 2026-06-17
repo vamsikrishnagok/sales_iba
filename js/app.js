@@ -27,6 +27,7 @@
   let webexSdk = null;
   let activeMeeting = null;
   let embeddedApp = null;
+  let detectedMeetingInfo = null; // auto-detected from embedded context
 
   // ---------- helpers ----------
 
@@ -90,6 +91,9 @@
             applicationInfo: embeddedApp.applicationInfo,
           };
           els.embeddedCtx.textContent = JSON.stringify(ctx, null, 2);
+
+          // Try to detect the current meeting context
+          tryDetectMeeting(embeddedApp);
         })
         .catch((err) => {
           log("Embedded App onReady() failed", err && err.message);
@@ -98,6 +102,25 @@
         });
     } catch (err) {
       log("Embedded App init error", err && err.message);
+    }
+  }
+
+  function tryDetectMeeting(app) {
+    // The Embedded App Framework may provide meeting info via webex object or app context
+    try {
+      // Some embedded app contexts expose webex.meetings or similar
+      if (app.about && app.about.meeting) {
+        detectedMeetingInfo = app.about.meeting;
+        log("Auto-detected meeting", detectedMeetingInfo);
+        els.meetingDestination.value = detectedMeetingInfo.id || detectedMeetingInfo.url || '';
+        const hint = document.getElementById("meetingDestinationHint");
+        if (hint) {
+          hint.textContent = "✓ Meeting auto-detected from embedded context.";
+        }
+      }
+    } catch (e) {
+      // Meeting detection failed; meeting destination is optional and can be manually provided
+      log("Could not auto-detect meeting", e && e.message);
     }
   }
 
@@ -141,9 +164,9 @@
       alert("Register the SDK first.");
       return;
     }
-    const destination = els.meetingDestination.value.trim();
+    let destination = els.meetingDestination.value.trim();
     if (!destination) {
-      alert("Enter the meeting destination (SIP, meeting number, or link).");
+      alert("Meeting destination not detected or provided. Paste the meeting SIP URI, number, or link.");
       return;
     }
 

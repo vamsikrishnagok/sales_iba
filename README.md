@@ -44,7 +44,14 @@ The page uses two distinct Webex SDKs:
 
 ---
 
-## Repository layout
+## Features
+
+- **Auto-detect current meeting** — When running inside a Webex meeting, the app automatically detects the meeting context and pre-fills the meeting destination.
+- **Zero backend dependency** — Live transcription is displayed in the UI only; no backend forwarding required.
+- **Real-time transcription** — Uses the Webex JavaScript SDK to receive and display live meeting transcripts.
+- **Embedded app ready** — Runs inside Webex meetings and spaces via the Embedded App Framework.
+
+---
 
 ```
 .
@@ -177,9 +184,10 @@ reach the backend over the network. The two simplest options are:
    "Live Transcript Forwarder".
 4. In the app UI:
   1. Paste your **Webex personal access token**.
-  2. Paste the **meeting destination** &mdash; this is typically the
-    meeting SIP URI (e.g. `123456789@webex.com`) or the personal-room
-    link of the host.
+   2. The **meeting destination** is auto-detected when the app runs inside a
+      Webex meeting. If running outside a meeting or auto-detection fails,
+      manually paste the meeting SIP URI (e.g. `123456789@webex.com`) or the
+      personal-room link of the host.
   3. Click **Register Webex SDK**, then **Join &amp; Start Transcription**.
 5. Watch live transcript lines appear in the **Live Transcript** card and in
    the uvicorn console.

@@ -36,16 +36,15 @@
           memory only and never transmitted anywhere except to Webex.
         </small>
 
-        <label for="meetingDestination">Meeting destination (SIP URI, meeting number, or link)</label>
+        <label for="meetingDestination">Meeting destination (optional)</label>
         <input
           id="meetingDestination"
           type="text"
-          placeholder="123456789@webex.com or https://company.webex.com/meet/user"
+          placeholder="Auto-detected when running in a meeting; paste SIP/number/link if manual override needed"
         />
-        <small>
-          The Webex JS SDK needs to join the meeting as a participant in order
-          to receive transcriptions. Webex Assistant must already be enabled
-          for the meeting.
+        <small id="meetingDestinationHint">
+          If this app is running inside a Webex meeting, the meeting is auto-detected.
+          Otherwise, paste the meeting destination (SIP URI, meeting number, or link).
         </small>
       </section>
 
