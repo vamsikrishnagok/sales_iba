@@ -10,9 +10,11 @@ and fetch a health check from /health.
 
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from llm.provider import ask_llm
 
 app = FastAPI(title="Webex Transcript API")
 
@@ -43,6 +45,13 @@ class TranscriptIn(BaseModel):
     transcript_id: str | None = None
 
 
+class AskIn(BaseModel):
+    """A question the frontend wants the LLM to answer."""
+
+    question: str
+    speaker: str | None = None
+
+
 @app.get("/health")
 def health() -> dict:
     """Simple endpoint app.js can call to confirm the backend is up."""
@@ -60,6 +69,7 @@ def add_transcript(item: TranscriptIn) -> dict:
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     transcripts.append(record)
+    print(transcripts)
     return {"saved": True, "total": len(transcripts)}
 
 
@@ -67,3 +77,21 @@ def add_transcript(item: TranscriptIn) -> dict:
 def list_transcripts() -> list[dict]:
     """Return everything received so far."""
     return transcripts
+
+
+@app.post("/ask")
+def ask(item: AskIn) -> dict:
+    """Answer a question (a transcript line containing '?') using the LLM."""
+    question = item.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is empty.")
+    try:
+        answer = ask_llm(question)
+    except Exception as exc:  # surface config/credential errors to the client
+        raise HTTPException(status_code=502, detail=f"LLM error: {exc}") from exc
+    return {
+        "question": question,
+        "speaker": item.speaker,
+        "answer": answer,
+        "answered_at": datetime.now(timezone.utc).isoformat(),
+    }

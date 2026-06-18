@@ -11,6 +11,10 @@ const API_BASE = 'http://localhost:8000';
 const loginBtn = document.querySelector('#login-btn');
 const statusEl = document.querySelector('#status');
 const transcriptEl = document.querySelector('#transcript');
+const aiAnswersEl = document.querySelector('#ai-answers');
+
+// Remember questions we've already sent so we don't ask the LLM twice.
+const askedQuestions = new Set();
 
 let webex;
 let meeting;
@@ -47,6 +51,50 @@ async function sendTranscriptToBackend(speaker, text, transcriptId) {
   } catch (err) {
     console.warn('[backend] failed to save transcript:', err.message);
   }
+}
+
+// Ask the LLM a question and render the answer in the AI Answers section.
+async function askLLM(question, speaker) {
+  // Clear the placeholder on first use.
+  if (askedQuestions.size === 0) {
+    aiAnswersEl.innerHTML = '';
+  }
+  askedQuestions.add(question);
+
+  const block = document.createElement('div');
+  block.style.marginBottom = '12px';
+
+  const qEl = document.createElement('div');
+  const qLabel = document.createElement('strong');
+  qLabel.innerText = `Q (${speaker || 'Unknown'}): `;
+  qEl.appendChild(qLabel);
+  qEl.appendChild(document.createTextNode(question));
+
+  const aEl = document.createElement('div');
+  aEl.style.color = '#0b5394';
+  aEl.innerText = 'Thinking…';
+
+  block.appendChild(qEl);
+  block.appendChild(aEl);
+  aiAnswersEl.appendChild(block);
+  aiAnswersEl.scrollTop = aiAnswersEl.scrollHeight;
+
+  try {
+    const res = await fetch(`${API_BASE}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, speaker }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    aEl.innerText = `A: ${data.answer}`;
+  } catch (err) {
+    aEl.style.color = '#cc0000';
+    aEl.innerText = `A: (failed to get answer — ${err.message})`;
+  }
+  aiAnswersEl.scrollTop = aiAnswersEl.scrollHeight;
 }
 
 // Tracks the live DOM line for each in-progress utterance (keyed by transcript id),
@@ -102,6 +150,11 @@ function renderTranscript(payload) {
   if (isFinal) {
     transcriptLines.delete(id);
     sendTranscriptToBackend(speaker, text, id);
+
+    // If the finalized line is a question, ask the LLM (once per question).
+    if (text.includes('?') && !askedQuestions.has(text)) {
+      askLLM(text, speaker);
+    }
   }
 }
 

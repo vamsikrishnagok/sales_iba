@@ -1,2 +1,6 @@
 fastapi
 uvicorn[standard]
+python-dotenv
+langchain-core
+langchain-google-vertexai
+google-auth
