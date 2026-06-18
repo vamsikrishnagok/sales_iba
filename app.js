@@ -4,6 +4,10 @@
 const CLIENT_ID = 'Cd7ffc2137ec3ab40ea41a5e20667f9b911baf16fa9697da8ac5b7dcc64d47a2b';
 const SCOPE = 'spark:all spark:kms';
 
+// Base URL of the FastAPI backend (see backend/main.py).
+// Use localhost while developing; swap to your deployed URL in production.
+const API_BASE = 'http://localhost:8000';
+
 const loginBtn = document.querySelector('#login-btn');
 const statusEl = document.querySelector('#status');
 const transcriptEl = document.querySelector('#transcript');
@@ -14,6 +18,35 @@ let meeting;
 function setStatus(text) {
   statusEl.innerText = text;
   console.log('[status]', text);
+}
+
+// Ping the backend so we know it is reachable.
+async function checkBackend() {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    const data = await res.json();
+    console.log('[backend] healthy:', data);
+  } catch (err) {
+    console.warn('[backend] not reachable:', err.message);
+  }
+}
+
+// Send one finalized transcript line to the backend.
+async function sendTranscriptToBackend(speaker, text, transcriptId) {
+  try {
+    await fetch(`${API_BASE}/transcripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        speaker,
+        text,
+        is_final: true,
+        transcript_id: transcriptId,
+      }),
+    });
+  } catch (err) {
+    console.warn('[backend] failed to save transcript:', err.message);
+  }
 }
 
 // Tracks the live DOM line for each in-progress utterance (keyed by transcript id),
@@ -64,9 +97,11 @@ function renderTranscript(payload) {
   line.appendChild(document.createTextNode(text));
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 
-  // Once finalized, stop tracking so the next utterance starts a fresh line.
+  // Once finalized, stop tracking so the next utterance starts a fresh line,
+  // and forward the completed line to the backend.
   if (isFinal) {
     transcriptLines.delete(id);
+    sendTranscriptToBackend(speaker, text, id);
   }
 }
 
@@ -88,6 +123,8 @@ function initWebex() {
       },
     },
   });
+
+  checkBackend();
 
   webex.once('ready', () => {
     if (webex.canAuthorize) {
