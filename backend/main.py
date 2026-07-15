@@ -101,6 +101,20 @@ class AskIn(BaseModel):
     speaker: str | None = None
 
 
+class TranscriptLine(BaseModel):
+    """One finalized transcript line sent by the frontend on save."""
+
+    speaker: str
+    text: str
+    transcript_id: str | None = None
+
+
+class SaveTranscriptIn(BaseModel):
+    """Full transcript the frontend sends when the user clicks Save."""
+
+    lines: list[TranscriptLine]
+
+
 @app.on_event("startup")
 def recover_orphaned_session() -> None:
     """If a previous run ended abruptly, finalize its leftover session file."""
@@ -149,6 +163,42 @@ def list_transcripts() -> list[dict]:
 def end_meeting() -> dict:
     """Persist the full transcript to a file and reset the in-memory store."""
     return _finalize_session()
+
+
+@app.post("/transcripts/save")
+def save_transcript(payload: SaveTranscriptIn) -> dict:
+    """Save a complete transcript sent from the frontend to timestamped files."""
+    if not payload.lines:
+        raise HTTPException(status_code=400, detail="No transcript lines to save.")
+
+    now = datetime.now(timezone.utc)
+    records = [
+        {
+            "speaker": line.speaker,
+            "text": line.text,
+            "transcript_id": line.transcript_id,
+        }
+        for line in payload.lines
+    ]
+
+    timestamp = now.strftime("%Y%m%d-%H%M%S")
+    base = TRANSCRIPTS_DIR / f"transcript-{timestamp}"
+
+    text_lines = [f"{r['speaker']}: {r['text']}" for r in records]
+    text_path = base.with_suffix(".txt")
+    text_path.write_text("\n".join(text_lines) + "\n", encoding="utf-8")
+
+    json_path = base.with_suffix(".json")
+    json_path.write_text(
+        json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    return {
+        "saved": True,
+        "lines": len(records),
+        "text_file": str(text_path),
+        "json_file": str(json_path),
+    }
 
 
 @app.post("/ask")

@@ -9,12 +9,17 @@ const SCOPE = 'spark:all spark:kms';
 const API_BASE = 'http://localhost:8000';
 
 const loginBtn = document.querySelector('#login-btn');
+const saveBtn = document.querySelector('#save-btn');
 const statusEl = document.querySelector('#status');
 const transcriptEl = document.querySelector('#transcript');
 const aiAnswersEl = document.querySelector('#ai-answers');
 
 // Remember questions we've already sent so we don't ask the LLM twice.
 const askedQuestions = new Set();
+
+// Every finalized transcript line, kept client-side so the Save button can
+// persist the complete transcript exactly as shown, regardless of backend state.
+const finalizedLines = [];
 
 let webex;
 let meeting;
@@ -149,8 +154,40 @@ function renderTranscript(payload) {
   // and forward the completed line to the backend.
   if (isFinal) {
     transcriptLines.delete(id);
+    finalizedLines.push({ speaker, text, transcript_id: id });
+    if (saveBtn) saveBtn.disabled = false;
     sendTranscriptToBackend(speaker, text, id);
   }
+}
+
+// Send the full transcript currently held client-side to the backend to save.
+async function saveFullTranscript() {
+  if (!finalizedLines.length) {
+    setStatus('Nothing to save yet.');
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  setStatus('Saving transcript…');
+  try {
+    const res = await fetch(`${API_BASE}/transcripts/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: finalizedLines }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    console.log('[backend] transcript saved:', data);
+    setStatus(`Transcript saved (${data.lines} lines).`);
+  } catch (err) {
+    console.warn('[backend] failed to save transcript:', err.message);
+    setStatus(`Failed to save transcript: ${err.message}`);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+if (saveBtn) {
+  saveBtn.addEventListener('click', saveFullTranscript);
 }
 
 // Must EXACTLY match a Redirect URI registered in your Webex Integration
