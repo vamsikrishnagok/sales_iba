@@ -150,11 +150,6 @@ function renderTranscript(payload) {
   if (isFinal) {
     transcriptLines.delete(id);
     sendTranscriptToBackend(speaker, text, id);
-
-    // If the finalized line is a question, ask the LLM (once per question).
-    if (text.includes('?') && !askedQuestions.has(text)) {
-      askLLM(text, speaker);
-    }
   }
 }
 
@@ -233,11 +228,41 @@ function getCurrentMeeting() {
   return ids.length ? all[ids[0]] : null;
 }
 
+// Tell the backend the meeting is over so it saves the full transcript to a file.
+let meetingEnded = false;
+async function saveTranscriptOnMeetingEnd() {
+  if (meetingEnded) return;
+  meetingEnded = true;
+  setStatus('Meeting ended — saving transcript…');
+  try {
+    const res = await fetch(`${API_BASE}/meeting/end`, { method: 'POST' });
+    const data = await res.json();
+    console.log('[backend] transcript saved:', data);
+    setStatus(
+      data.saved
+        ? `Transcript saved (${data.lines} lines).`
+        : 'Meeting ended — no transcript to save.'
+    );
+  } catch (err) {
+    console.warn('[backend] failed to save transcript:', err.message);
+    setStatus(`Meeting ended — failed to save transcript: ${err.message}`);
+  }
+}
+
 async function joinAndTranscribe() {
   // Transcript chunks arrive through this event in the v3 SDK.
   meeting.on('meeting:receiveTranscription:started', (payload) => {
     if (payload && payload.transcription) {
       renderTranscript(payload);
+    }
+  });
+
+  // When the meeting ends or we leave, persist the full transcript.
+  meeting.on('meeting:self:left', saveTranscriptOnMeetingEnd);
+  meeting.on('meeting:ended', saveTranscriptOnMeetingEnd);
+  webex.meetings.on('meeting:removed', ({ meetingId }) => {
+    if (!meeting || meetingId === meeting.id) {
+      saveTranscriptOnMeetingEnd();
     }
   });
 
