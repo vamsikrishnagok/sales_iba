@@ -13,20 +13,38 @@
   <main style="max-width: 720px; margin: 0 auto;">
     <h2>Meeting Transcription</h2>
 
-    <button id="login-btn" disabled>Login with Webex</button>
-    <button id="save-btn" disabled>Save transcript</button>
-    <p id="status">Loading…</p>
+    <!-- Portal sign-in: obtains a bearer token for the data injection service. -->
+    <section id="auth-section" class="auth-section">
+      <h3>Sign in to IBA Portal</h3>
+      <input id="auth-username" type="text" placeholder="Username" autocomplete="username" />
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="auth-btn">Sign in</button>
+      <p id="auth-status" class="muted"></p>
+    </section>
 
-    <h3>Transcript</h3>
-    <div id="transcript"
-      style="border: 1px solid #ccc; border-radius: 6px; padding: 12px; height: 50vh; overflow-y: auto; white-space: pre-wrap;">
-    </div>
+    <!-- App: only usable once signed in to the portal. -->
+    <section id="app-section" hidden>
+      <p class="signed-in-bar">
+        Signed in as <strong id="auth-user"></strong>
+        <button id="logout-btn" class="link-like">Sign out</button>
+      </p>
 
-    <h3>AI Answers</h3>
-    <div id="ai-answers"
-      style="border: 1px solid #b3d4fc; background: #f5f9ff; border-radius: 6px; padding: 12px; height: 30vh; overflow-y: auto; white-space: pre-wrap;">
-      <em style="color: #888;">Answers to questions (lines containing “?”) will appear here.</em>
-    </div>
+      <button id="login-btn" disabled>Login with Webex</button>
+      <input id="opportunity-id" type="text" placeholder="Opportunity ID" />
+      <button id="save-btn" disabled>Save transcript</button>
+      <p id="status">Loading…</p>
+
+      <h3>Transcript</h3>
+      <div id="transcript"
+        style="border: 1px solid #ccc; border-radius: 6px; padding: 12px; height: 50vh; overflow-y: auto; white-space: pre-wrap;">
+      </div>
+
+      <h3>AI Answers</h3>
+      <div id="ai-answers"
+        style="border: 1px solid #b3d4fc; background: #f5f9ff; border-radius: 6px; padding: 12px; height: 30vh; overflow-y: auto; white-space: pre-wrap;">
+        <em style="color: #888;">Answers to questions (lines containing “?”) will appear here.</em>
+      </div>
+    </section>
   </main>
 
   <script src="./webex.min.js"></script>

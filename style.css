@@ -456,3 +456,54 @@ select:disabled {
   border-radius:5px;
   padding: 0 2px;
 }
+
+/* Portal auth */
+.auth-section {
+  max-width: 360px;
+  margin: 1rem auto;
+  padding: 1.25rem 1.5rem;
+  background: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-shadow: 1px 1px 5px 1px #dddddd;
+}
+
+.auth-section h3 {
+  margin-top: 0;
+  color: #0052bf;
+}
+
+.auth-section input {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.auth-section button {
+  width: 100%;
+}
+
+.muted {
+  color: #777;
+  font-size: 0.85em;
+  min-height: 1.1em;
+}
+
+.signed-in-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.link-like {
+  background: none;
+  border: none;
+  color: #0052bf;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  width: auto;
+}

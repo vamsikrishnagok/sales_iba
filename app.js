@@ -4,15 +4,72 @@
 const CLIENT_ID = 'Cd7ffc2137ec3ab40ea41a5e20667f9b911baf16fa9697da8ac5b7dcc64d47a2b';
 const SCOPE = 'spark:all spark:kms';
 
-// Base URL of the FastAPI backend (see backend/main.py).
+// Base URL of the FastAPI backend (data injection service).
 // Use localhost while developing; swap to your deployed URL in production.
 const API_BASE = 'http://localhost:8000';
 
 const loginBtn = document.querySelector('#login-btn');
 const saveBtn = document.querySelector('#save-btn');
+const opportunityIdEl = document.querySelector('#opportunity-id');
 const statusEl = document.querySelector('#status');
 const transcriptEl = document.querySelector('#transcript');
 const aiAnswersEl = document.querySelector('#ai-answers');
+
+// Portal auth elements.
+const authSection = document.querySelector('#auth-section');
+const appSection = document.querySelector('#app-section');
+const authUsernameEl = document.querySelector('#auth-username');
+const authPasswordEl = document.querySelector('#auth-password');
+const authBtn = document.querySelector('#auth-btn');
+const authStatusEl = document.querySelector('#auth-status');
+const authUserEl = document.querySelector('#auth-user');
+const logoutBtn = document.querySelector('#logout-btn');
+
+const TOKEN_KEY = 'iba_portal_token';
+const USER_KEY = 'iba_portal_user';
+
+function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function setSession(token, user) {
+  localStorage.setItem(TOKEN_KEY, token);
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+// Authenticated fetch against the data injection service. Injects the bearer
+// token and JSON content type; on 401 it clears the session and shows login.
+async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401 && auth) {
+    clearSession();
+    showLogin('Session expired — please sign in again.');
+    throw new Error('Not authenticated');
+  }
+  return res;
+}
 
 // Remember questions we've already sent so we don't ask the LLM twice.
 const askedQuestions = new Set();
@@ -32,7 +89,7 @@ function setStatus(text) {
 // Ping the backend so we know it is reachable.
 async function checkBackend() {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await apiFetch('/health', { auth: false });
     const data = await res.json();
     console.log('[backend] healthy:', data);
   } catch (err) {
@@ -40,18 +97,18 @@ async function checkBackend() {
   }
 }
 
-// Send one finalized transcript line to the backend.
+// Send one finalized transcript line to the backend live session.
 async function sendTranscriptToBackend(speaker, text, transcriptId) {
   try {
-    await fetch(`${API_BASE}/transcripts`, {
+    await apiFetch('/transcripts/line', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         speaker,
         text,
         is_final: true,
         transcript_id: transcriptId,
-      }),
+        opportunity_id: (opportunityIdEl?.value || '').trim() || null,
+      },
     });
   } catch (err) {
     console.warn('[backend] failed to save transcript:', err.message);
@@ -85,10 +142,9 @@ async function askLLM(question, speaker) {
   aiAnswersEl.scrollTop = aiAnswersEl.scrollHeight;
 
   try {
-    const res = await fetch(`${API_BASE}/ask`, {
+    const res = await apiFetch('/transcripts/ask', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, speaker }),
+      body: { question, speaker },
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -166,18 +222,23 @@ async function saveFullTranscript() {
     setStatus('Nothing to save yet.');
     return;
   }
+  const opportunityId = (opportunityIdEl?.value || '').trim();
+  if (!opportunityId) {
+    setStatus('Please enter an Opportunity ID before saving.');
+    opportunityIdEl?.focus();
+    return;
+  }
   if (saveBtn) saveBtn.disabled = true;
   setStatus('Saving transcript…');
   try {
-    const res = await fetch(`${API_BASE}/transcripts/save`, {
+    const res = await apiFetch('/transcripts/save', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lines: finalizedLines }),
+      body: { opportunity_id: opportunityId, lines: finalizedLines },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     console.log('[backend] transcript saved:', data);
-    setStatus(`Transcript saved (${data.lines} lines).`);
+    setStatus(`Transcript saved (${data.lines} lines) for opportunity ${data.opportunity_id}.`);
   } catch (err) {
     console.warn('[backend] failed to save transcript:', err.message);
     setStatus(`Failed to save transcript: ${err.message}`);
@@ -265,40 +326,59 @@ function getCurrentMeeting() {
   return ids.length ? all[ids[0]] : null;
 }
 
-// Tell the backend the meeting is over so it saves the full transcript to a file.
+// Tell the backend the meeting is over so it saves the full transcript.
 let meetingEnded = false;
 async function saveTranscriptOnMeetingEnd() {
   if (meetingEnded) return;
   meetingEnded = true;
+  const opportunityId = (opportunityIdEl?.value || '').trim();
+  if (!finalizedLines.length) {
+    setStatus('Meeting ended — no transcript to save.');
+    return;
+  }
+  if (!opportunityId) {
+    setStatus('Meeting ended — enter an Opportunity ID and click Save to persist.');
+    return;
+  }
   setStatus('Meeting ended — saving transcript…');
   try {
-    const res = await fetch(`${API_BASE}/meeting/end`, { method: 'POST' });
+    const res = await apiFetch('/transcripts/save', {
+      method: 'POST',
+      body: { opportunity_id: opportunityId, lines: finalizedLines },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     console.log('[backend] transcript saved:', data);
-    setStatus(
-      data.saved
-        ? `Transcript saved (${data.lines} lines).`
-        : 'Meeting ended — no transcript to save.'
-    );
+    setStatus(`Transcript saved (${data.lines} lines) for opportunity ${data.opportunity_id}.`);
   } catch (err) {
     console.warn('[backend] failed to save transcript:', err.message);
     setStatus(`Meeting ended — failed to save transcript: ${err.message}`);
   }
 }
 
-// Last-resort save when the tab/window is closed. sendBeacon survives unload,
-// unlike a normal fetch which the browser may cancel.
+// Last-resort save when the tab/window is closed. `fetch` with keepalive can
+// carry the Authorization header (unlike sendBeacon) and survives unload.
 function saveTranscriptOnUnload() {
   if (meetingEnded) return;
+  const opportunityId = (opportunityIdEl?.value || '').trim();
+  const token = getToken();
+  if (!finalizedLines.length || !opportunityId || !token) return;
   try {
-    navigator.sendBeacon(`${API_BASE}/meeting/end`);
+    fetch(`${API_BASE}/transcripts/save`, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ opportunity_id: opportunityId, lines: finalizedLines }),
+    });
   } catch (err) {
-    console.warn('[backend] beacon save failed:', err.message);
+    console.warn('[backend] keepalive save failed:', err.message);
   }
 }
 window.addEventListener('pagehide', saveTranscriptOnUnload);
 window.addEventListener('beforeunload', saveTranscriptOnUnload);
-
 async function joinAndTranscribe() {
   // Transcript chunks arrive through this event in the v3 SDK.
   meeting.on('meeting:receiveTranscription:started', (payload) => {
@@ -324,4 +404,79 @@ async function joinAndTranscribe() {
   setStatus('Transcribing live…');
 }
 
-initWebex();
+// ---------------------------------------------------------------------------
+// Portal auth bootstrap
+// ---------------------------------------------------------------------------
+
+let webexInitialized = false;
+
+function showLogin(message) {
+  if (authSection) authSection.hidden = false;
+  if (appSection) appSection.hidden = true;
+  if (authStatusEl) authStatusEl.innerText = message || '';
+  if (authBtn) authBtn.disabled = false;
+}
+
+function showApp() {
+  const user = getStoredUser();
+  if (authUserEl) authUserEl.innerText = user?.username || 'user';
+  if (authSection) authSection.hidden = true;
+  if (appSection) appSection.hidden = false;
+  // Start the Webex flow once, now that we have a portal token.
+  if (!webexInitialized) {
+    webexInitialized = true;
+    initWebex();
+  }
+}
+
+async function signIn() {
+  const username = (authUsernameEl?.value || '').trim();
+  const password = authPasswordEl?.value || '';
+  if (!username || !password) {
+    if (authStatusEl) authStatusEl.innerText = 'Enter your username and password.';
+    return;
+  }
+  if (authBtn) authBtn.disabled = true;
+  if (authStatusEl) authStatusEl.innerText = 'Signing in…';
+  try {
+    const res = await apiFetch('/auth/login', {
+      method: 'POST',
+      auth: false,
+      body: { username, password },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || `Sign in failed (${res.status})`);
+    }
+    setSession(data.token, data.user);
+    if (authPasswordEl) authPasswordEl.value = '';
+    showApp();
+  } catch (err) {
+    if (authStatusEl) authStatusEl.innerText = err.message;
+    if (authBtn) authBtn.disabled = false;
+  }
+}
+
+function signOut() {
+  // Best-effort server-side logout, then clear local state.
+  apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+  clearSession();
+  // Reload so the Webex SDK/meeting state is fully reset.
+  window.location.reload();
+}
+
+if (authBtn) authBtn.addEventListener('click', signIn);
+if (authPasswordEl) {
+  authPasswordEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') signIn();
+  });
+}
+if (logoutBtn) logoutBtn.addEventListener('click', signOut);
+
+// On load: resume an existing session or prompt for sign-in.
+if (getToken()) {
+  showApp();
+} else {
+  showLogin('Please sign in to continue.');
+}
+
