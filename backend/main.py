@@ -8,7 +8,9 @@ Then the frontend (app.js) can POST transcript lines to /transcripts
 and fetch a health check from /health.
 """
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,10 @@ from pydantic import BaseModel
 from llm.provider import ask_llm
 
 app = FastAPI(title="Webex Transcript API")
+
+# Directory where completed-meeting transcripts are written.
+TRANSCRIPTS_DIR = Path(__file__).parent / "transcripts"
+TRANSCRIPTS_DIR.mkdir(exist_ok=True)
 
 # Allow the browser app (GitHub Pages + localhost) to call this API.
 app.add_middleware(
@@ -35,6 +41,49 @@ app.add_middleware(
 # In-memory store (resets on restart). Fine for a demo.
 transcripts: list[dict] = []
 
+# Live session file, continuously updated as lines arrive so a sudden
+# meeting close (which may skip the /meeting/end call) never loses data.
+SESSION_FILE = TRANSCRIPTS_DIR / "current-session.json"
+
+
+def _write_session_file() -> None:
+    """Persist the current in-memory transcript to the live session file."""
+    SESSION_FILE.write_text(
+        json.dumps(transcripts, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _finalize_session() -> dict:
+    """Write timestamped .txt/.json files and clear the live session."""
+    if not transcripts:
+        return {"saved": False, "reason": "no transcripts", "lines": 0}
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base = TRANSCRIPTS_DIR / f"transcript-{timestamp}"
+
+    # Human-readable text file.
+    lines = [f"{item['speaker']}: {item['text']}" for item in transcripts]
+    text_path = base.with_suffix(".txt")
+    text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # Structured JSON alongside it for later processing.
+    json_path = base.with_suffix(".json")
+    json_path.write_text(
+        json.dumps(transcripts, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    saved_lines = len(transcripts)
+    transcripts.clear()
+    # Reset the live session file now that it's been finalized.
+    if SESSION_FILE.exists():
+        SESSION_FILE.unlink()
+    return {
+        "saved": True,
+        "lines": saved_lines,
+        "text_file": str(text_path),
+        "json_file": str(json_path),
+    }
+
 
 class TranscriptIn(BaseModel):
     """Shape of the JSON the frontend sends."""
@@ -50,6 +99,22 @@ class AskIn(BaseModel):
 
     question: str
     speaker: str | None = None
+
+
+@app.on_event("startup")
+def recover_orphaned_session() -> None:
+    """If a previous run ended abruptly, finalize its leftover session file."""
+    if SESSION_FILE.exists():
+        try:
+            data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = []
+        if data:
+            transcripts.extend(data)
+            result = _finalize_session()
+            print(f"[recovery] finalized orphaned session: {result}")
+        else:
+            SESSION_FILE.unlink(missing_ok=True)
 
 
 @app.get("/health")
@@ -69,7 +134,8 @@ def add_transcript(item: TranscriptIn) -> dict:
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     transcripts.append(record)
-    print(transcripts)
+    # Persist immediately so nothing is lost if the meeting closes abruptly.
+    _write_session_file()
     return {"saved": True, "total": len(transcripts)}
 
 
@@ -77,6 +143,12 @@ def add_transcript(item: TranscriptIn) -> dict:
 def list_transcripts() -> list[dict]:
     """Return everything received so far."""
     return transcripts
+
+
+@app.post("/meeting/end")
+def end_meeting() -> dict:
+    """Persist the full transcript to a file and reset the in-memory store."""
+    return _finalize_session()
 
 
 @app.post("/ask")

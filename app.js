@@ -249,6 +249,19 @@ async function saveTranscriptOnMeetingEnd() {
   }
 }
 
+// Last-resort save when the tab/window is closed. sendBeacon survives unload,
+// unlike a normal fetch which the browser may cancel.
+function saveTranscriptOnUnload() {
+  if (meetingEnded) return;
+  try {
+    navigator.sendBeacon(`${API_BASE}/meeting/end`);
+  } catch (err) {
+    console.warn('[backend] beacon save failed:', err.message);
+  }
+}
+window.addEventListener('pagehide', saveTranscriptOnUnload);
+window.addEventListener('beforeunload', saveTranscriptOnUnload);
+
 async function joinAndTranscribe() {
   // Transcript chunks arrive through this event in the v3 SDK.
   meeting.on('meeting:receiveTranscription:started', (payload) => {
@@ -266,8 +279,7 @@ async function joinAndTranscribe() {
     }
   });
 
-  setStatus('Joining meeting…');
-  await meeting.join();
+  setStatus('Joining meeting…');  await meeting.join();
 
   setStatus('Starting transcription…');
   await meeting.receiveTranscription();
